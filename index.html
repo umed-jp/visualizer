@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>auto-receipts-feedback 分析</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root{
+  --bg:#F3F5F4;
+  --panel:#FFFFFF;
+  --ink:#16232E;
+  --muted:#66757F;
+  --line:#DCE3E1;
+  --accent:#0E6E5C;      /* レセプト帳票の緑インク */
+  --accent-soft:#E3F0EC;
+  --bad:#B3382E;
+  --bad-soft:#F7E8E6;
+  --warn:#A9761B;
+  --warn-soft:#F6EEDC;
+  --ok:#0E6E5C;
+  --mono:"SFMono-Regular",ui-monospace,"Cascadia Mono","Roboto Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;font-size:13px;line-height:1.55}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 24px 80px}
+
+header{display:flex;align-items:baseline;gap:14px;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:18px;flex-wrap:wrap}
+header h1{font-size:18px;font-weight:700;letter-spacing:.02em}
+header .sub{color:var(--muted);font-family:var(--mono);font-size:11px}
+header .spacer{flex:1}
+#fileMeta{font-family:var(--mono);font-size:11px;color:var(--accent)}
+
+/* upload */
+#dropzone{border:2px dashed var(--line);border-radius:8px;background:var(--panel);padding:46px 20px;text-align:center;color:var(--muted);cursor:pointer;transition:border-color .15s,background .15s}
+#dropzone.drag{border-color:var(--accent);background:var(--accent-soft)}
+#dropzone strong{color:var(--ink);font-size:15px;display:block;margin-bottom:6px}
+#dropzone input{display:none}
+#reloadBtn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--muted)}
+#reloadBtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* filters */
+#filters{display:none;gap:10px;flex-wrap:wrap;margin:16px 0;align-items:flex-end}
+.filter label{display:block;font-size:10px;color:var(--muted);letter-spacing:.06em;margin-bottom:3px;text-transform:uppercase}
+.filter select{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 8px;font-size:12px;min-width:130px;color:var(--ink)}
+#clearBtn{border:none;background:none;color:var(--accent);font-size:12px;cursor:pointer;text-decoration:underline;padding:6px 2px}
+#filterCount{font-family:var(--mono);font-size:11px;color:var(--muted);padding:6px 0}
+
+/* kpi */
+#kpis{display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.kpi .v{font-size:24px;font-weight:700;font-family:var(--mono);line-height:1.1}
+.kpi .l{font-size:11px;color:var(--muted);margin-top:4px}
+.kpi.neg .v{color:var(--bad)}
+.kpi.pos .v{color:var(--ok)}
+
+/* triage strip */
+#triage{display:none;margin-bottom:18px}
+#triage .bar{display:flex;height:26px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+#triage .seg{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:#fff;min-width:0;overflow:hidden;white-space:nowrap}
+#triage .legend{display:flex;gap:16px;margin-top:6px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+#triage .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:var(--c)}
+
+/* sections */
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-bottom:14px;display:none}
+section h2{font-size:13px;font-weight:700;letter-spacing:.04em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:8px}
+section h2 .n{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+
+/* bar rows */
+.brow{display:grid;grid-template-columns:minmax(140px,42%) 1fr 44px;align-items:center;gap:8px;padding:3px 0;cursor:pointer;border-radius:4px}
+.brow:hover{background:var(--accent-soft)}
+.brow.active{background:var(--accent-soft);outline:1px solid var(--accent)}
+.brow .k{font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brow .track{background:#EDF1EF;border-radius:3px;height:14px;position:relative}
+.brow .fill{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--accent)}
+.brow .fill.bad{background:var(--bad)}
+.brow .fill.warn{background:var(--warn)}
+.brow .c{font-family:var(--mono);font-size:11px;text-align:right;color:var(--muted)}
+.subtitle{font-size:11px;color:var(--muted);margin-bottom:8px}
+
+/* temporal matrix */
+table.matrix{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:11px}
+table.matrix th,table.matrix td{border:1px solid var(--line);padding:5px 8px;text-align:left}
+table.matrix th{background:#F7F9F8;font-weight:600}
+table.matrix td.num{text-align:right}
+.pill{display:inline-block;border-radius:10px;padding:1px 8px;font-size:10px;font-family:var(--mono)}
+.pill.ok{background:var(--accent-soft);color:var(--accent)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.na{background:#EEF1F0;color:var(--muted)}
+
+/* remarks */
+.remark{border-left:3px solid var(--bad);padding:8px 12px;margin-bottom:8px;background:#FCFAF9;border-radius:0 6px 6px 0}
+.remark.true{border-left-color:var(--ok);background:#F8FBFA}
+.remark .meta{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:2px;display:flex;gap:10px;flex-wrap:wrap}
+.remark .txt{white-space:pre-wrap;font-size:12.5px}
+.remark .gen{font-size:11px;color:var(--muted);margin-top:3px}
+
+/* data table */
+.tblwrap{overflow-x:auto}
+table.data{border-collapse:collapse;width:100%;font-size:11.5px;min-width:900px}
+table.data th{position:sticky;top:0;background:#F7F9F8;border-bottom:2px solid var(--ink);padding:6px 8px;text-align:left;font-size:10.5px;letter-spacing:.03em;white-space:nowrap;cursor:pointer;user-select:none}
+table.data th .arr{color:var(--accent)}
+table.data td{border-bottom:1px solid var(--line);padding:5px 8px;font-family:var(--mono);font-size:11px;white-space:nowrap;vertical-align:top}
+table.data tr.main{cursor:pointer}
+table.data tr.main:hover{background:var(--accent-soft)}
+tr.detail td{white-space:normal;background:#FAFBFA;font-family:inherit}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:4px 20px;padding:6px 4px}
+.kv div{font-size:11px}
+.kv b{font-family:var(--mono);font-size:10px;color:var(--muted);display:block}
+.kv span{font-family:var(--mono);font-size:11px;word-break:break-all}
+#moreBtn{margin-top:10px;border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px}
+#moreBtn:hover{border-color:var(--accent);color:var(--accent)}
+.empty{color:var(--muted);font-size:12px;padding:8px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>auto-receipts-feedback 分析</h1>
+  <span class="sub">レセまる / claimflow フィードバック診断</span>
+  <span class="spacer"></span>
+  <span id="fileMeta"></span>
+  <button id="reloadBtn" style="display:none">別のCSVを読み込む</button>
+</header>
+
+<div id="dropzone">
+  <strong>CSVをドラッグ＆ドロップ</strong>
+  クリックしてファイルを選択（カンマ / タブ区切り自動判定）
+  <input type="file" id="fileInput" accept=".csv,.tsv,.txt">
+</div>
+
+<div id="filters">
+  <div class="filter"><label>環境</label><select id="fEnv"></select></div>
+  <div class="filter"><label>クリニック</label><select id="fClinic"></select></div>
+  <div class="filter"><label>年月 (resolved)</label><select id="fMonth"></select></div>
+  <div class="filter"><label>feedback</label><select id="fFeedback"></select></div>
+  <div class="filter"><label>provenance</label><select id="fProv"></select></div>
+  <div class="filter"><label>consistency</label><select id="fCons"></select></div>
+  <div class="filter"><label>算定グループ</label><select id="fGroup"></select></div>
+  <button id="clearBtn">フィルタ解除</button>
+  <span id="filterCount"></span>
+</div>
+
+<div id="kpis"></div>
+
+<div id="triage">
+  <div class="bar" id="triageBar"></div>
+  <div class="legend" id="triageLegend"></div>
+</div>
+
+<section id="secReasons">
+  <h2>ブロッカーの内訳 <span class="n">クリックでフィルタ</span></h2>
+  <div class="grid2">
+    <div>
+      <div class="subtitle">provenanceReasons（生成レセプトの由来を特定できない理由）</div>
+      <div id="provReasons"></div>
+    </div>
+    <div>
+      <div class="subtitle">sourceConsistencyReasons（ソース整合性の警告）</div>
+      <div id="consReasons"></div>
+    </div>
+  </div>
+</section>
+
+<section id="secStatus">
+  <h2>ステータス分布</h2>
+  <div class="grid2">
+    <div>
+      <div class="subtitle">runRequestObservedStatus / movacalJobStatus</div>
+      <div id="runStatus"></div>
+      <div style="height:14px"></div>
+      <div id="jobStatus"></div>
+    </div>
+    <div>
+      <div class="subtitle">キャッシュの時系列ステータス（生成時点との関係）</div>
+      <table class="matrix" id="temporalMatrix"></table>
+    </div>
+  </div>
+</section>
+
+<section id="secGroups">
+  <h2>算定内容 × feedback</h2>
+  <div class="grid2">
+    <div>
+      <div class="subtitle">generatedGroup（算定ロジック）</div>
+      <div id="groupBars"></div>
+    </div>
+    <div>
+      <div class="subtitle">generatedTitle（算定タイトル：同一建物居住者／以外 の区別など）</div>
+      <div id="titleBars"></div>
+    </div>
+  </div>
+</section>
+
+<section id="secRemarkPatterns">
+  <h2>コメントパターン <span class="n">同一コメントをまとめて頻度順・クリックでフィルタ</span></h2>
+  <div id="remarkPatterns"></div>
+</section>
+
+<section id="secDupes">
+  <h2>同一診療への複数フィードバック <span class="n" id="dupeCount"></span></h2>
+  <div class="subtitle">同じ clinic × encounter に複数回フィードバックが登録されたもの（再生成しても直っていない可能性の指標）</div>
+  <div class="tblwrap"><table class="matrix" id="dupeTable"></table></div>
+</section>
+
+<section id="secRemarks">
+  <h2>フィードバックコメント <span class="n" id="remarkCount"></span></h2>
+  <div id="remarks"></div>
+</section>
+
+<section id="secTable">
+  <h2>明細 <span class="n">行クリックで全フィールド展開・ヘッダクリックでソート</span></h2>
+  <div class="tblwrap">
+    <table class="data">
+      <thead id="tblHead"></thead>
+      <tbody id="tblBody"></tbody>
+    </table>
+  </div>
+  <button id="moreBtn">さらに表示</button>
+</section>
+</div>
+
+<script>
+let rows = [];          // all parsed rows
+let filtered = [];      // after filters
+let reasonFilter = null; // {field, value}
+let remarkFilter = null; // normalized remark pattern
+let sortKey = 'createdAt', sortDir = -1;
+let tableLimit = 50;
+
+const $ = id => document.getElementById(id);
+
+// ---------- helpers ----------
+const parseJsonArr = v => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; }
+};
+const isTrue = v => String(v).trim().toUpperCase() === 'TRUE';
+const isFalse = v => String(v).trim().toUpperCase() === 'FALSE';
+const fmtDt = v => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d)) return String(v);
+  return d.toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Tokyo'});
+};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const count = (arr, fn) => {
+  const m = new Map();
+  arr.forEach(r => { const k = fn(r); if (k===null||k===undefined) return; (Array.isArray(k)?k:[k]).forEach(x=>{ if(x==='')x='(空)'; m.set(x,(m.get(x)||0)+1); }); });
+  return [...m.entries()].sort((a,b)=>b[1]-a[1]);
+};
+
+// ---------- upload ----------
+const dz = $('dropzone'), fi = $('fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+fi.addEventListener('change', () => { if(fi.files[0]) loadFile(fi.files[0]); });
+$('reloadBtn').addEventListener('click', () => fi.click());
+
+function loadFile(file){
+  Papa.parse(file, {
+    header:true, skipEmptyLines:'greedy',
+    complete: res => {
+      rows = res.data.filter(r => r._document_id || r.clinicId || r.encounterId);
+      // pre-parse
+      rows.forEach(r => {
+        r._provReasons = parseJsonArr(r.provenanceReasons);
+        r._consReasons = parseJsonArr(r.sourceConsistencyReasons);
+        r._missingKinds = parseJsonArr(r.sourceMissingKinds);
+        r._fb = isTrue(r.feedback) ? 'TRUE' : isFalse(r.feedback) ? 'FALSE' : '(その他)';
+        r._t = new Date(r.createdAt || r._create_time || 0).getTime() || 0;
+        // normalized remark pattern: collapse whitespace/newlines, unify ×✕x
+        r._remarkNorm = String(r.remarks||'').replace(/[×✕Xx]/g,'✕').replace(/[\s　]+/g,' ').trim();
+      });
+      $('fileMeta').textContent = `${file.name} — ${rows.length} 件`;
+      dz.style.display='none';
+      $('reloadBtn').style.display='inline-block';
+      reasonFilter=null; remarkFilter=null; tableLimit=50;
+      buildFilters();
+      applyFilters();
+      ['filters','kpis','triage'].forEach(id=>$(id).style.display=id==='filters'?'flex':id==='kpis'?'grid':'block');
+      document.querySelectorAll('section').forEach(s=>s.style.display='block');
+    },
+    error: err => alert('CSVの解析に失敗しました: ' + err)
+  });
+}
+
+// ---------- filters ----------
+function fillSelect(id, values){
+  const s=$(id); const cur=s.value;
+  s.innerHTML='<option value="">すべて</option>'+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  if([...s.options].some(o=>o.value===cur)) s.value=cur;
+}
+function buildFilters(){
+  fillSelect('fEnv', [...new Set(rows.map(r=>r.environment).filter(Boolean))].sort());
+  fillSelect('fClinic', [...new Set(rows.map(r=>r.clinicId).filter(Boolean))].sort());
+  fillSelect('fMonth', [...new Set(rows.map(r=>r.resolvedYearMonth||r.listItemYearMonth).filter(Boolean))].sort());
+  fillSelect('fFeedback', ['TRUE','FALSE','(その他)']);
+  fillSelect('fProv', [...new Set(rows.map(r=>r.provenanceStatus).filter(Boolean))].sort());
+  fillSelect('fCons', [...new Set(rows.map(r=>r.sourceConsistencyStatus).filter(Boolean))].sort());
+  fillSelect('fGroup', [...new Set(rows.map(r=>r.generatedGroup).filter(Boolean))].sort());
+}
+['fEnv','fClinic','fMonth','fFeedback','fProv','fCons','fGroup'].forEach(id=>$(id).addEventListener('change', applyFilters));
+$('clearBtn').addEventListener('click', ()=>{
+  ['fEnv','fClinic','fMonth','fFeedback','fProv','fCons','fGroup'].forEach(id=>$(id).value='');
+  reasonFilter=null; remarkFilter=null; applyFilters();
+});
+
+function applyFilters(){
+  const f = {
+    env:$('fEnv').value, clinic:$('fClinic').value, month:$('fMonth').value,
+    fb:$('fFeedback').value, prov:$('fProv').value, cons:$('fCons').value, grp:$('fGroup').value
+  };
+  filtered = rows.filter(r =>
+    (!f.env || r.environment===f.env) &&
+    (!f.clinic || r.clinicId===f.clinic) &&
+    (!f.month || (r.resolvedYearMonth||r.listItemYearMonth)===f.month) &&
+    (!f.fb || r._fb===f.fb) &&
+    (!f.prov || r.provenanceStatus===f.prov) &&
+    (!f.cons || r.sourceConsistencyStatus===f.cons) &&
+    (!f.grp || r.generatedGroup===f.grp) &&
+    (!reasonFilter || (reasonFilter.field==='prov' ? r._provReasons.includes(reasonFilter.value) : r._consReasons.includes(reasonFilter.value))) &&
+    (!remarkFilter || r._remarkNorm===remarkFilter)
+  );
+  const tags=[];
+  if(reasonFilter) tags.push(`reason: ${reasonFilter.value}`);
+  if(remarkFilter) tags.push(`コメント: ${remarkFilter}`);
+  $('filterCount').textContent = `${filtered.length} / ${rows.length} 件` + (tags.length?`（${tags.join(' / ')}）`:'');
+  tableLimit = 50;
+  renderAll();
+}
+
+// ---------- render ----------
+function renderAll(){ renderKpis(); renderTriage(); renderReasons(); renderStatus(); renderGroups(); renderRemarkPatterns(); renderDupes(); renderRemarks(); renderTable(); }
+
+function renderKpis(){
+  const n=filtered.length;
+  const nTrue=filtered.filter(r=>r._fb==='TRUE').length;
+  const nFalse=filtered.filter(r=>r._fb==='FALSE').length;
+  const withRemarks=filtered.filter(r=>r.remarks && r.remarks.trim()).length;
+  const clinics=new Set(filtered.map(r=>r.clinicId).filter(Boolean)).size;
+  const encounters=new Set(filtered.map(r=>r.clinicId+':'+r.encounterId).filter(Boolean)).size;
+  const provOk=filtered.filter(r=>r.provenanceStatus==='verified'||r.provenanceStatus==='ok'||r.provenanceStatus==='unique').length;
+  const kpis=[
+    {v:n, l:'フィードバック件数'},
+    {v:nFalse, l:'feedback = FALSE（誤り指摘）', cls: nFalse? 'neg':''},
+    {v:nTrue, l:'feedback = TRUE（正しい）', cls: nTrue? 'pos':''},
+    {v:n? Math.round(nFalse/n*100)+'%':'—', l:'誤り率', cls:'neg'},
+    {v:withRemarks, l:'コメントあり'},
+    {v:clinics, l:'クリニック数'},
+    {v:encounters, l:'ユニーク診療'},
+    {v:n-provOk, l:'provenance 未確定', cls:(n-provOk)?'neg':''},
+    {v:dupeEncounters().length, l:'複数FBの診療', cls:dupeEncounters().length?'neg':''},
+  ];
+  $('kpis').innerHTML = kpis.map(k=>`<div class="kpi ${k.cls||''}"><div class="v">${k.v}</div><div class="l">${k.l}</div></div>`).join('');
+}
+
+function renderTriage(){
+  // composition: provenance ok / ambiguous+other, feedback true/false — use provenanceStatus buckets
+  const buckets = count(filtered, r=>r.provenanceStatus||'(空)');
+  const colors = {verified:'#0E6E5C', unique:'#0E6E5C', ok:'#0E6E5C', ambiguous:'#B3382E', missing:'#A9761B', indeterminate:'#A9761B'};
+  const total = filtered.length||1;
+  $('triageBar').innerHTML = buckets.map(([k,c])=>{
+    const col = colors[k] || '#66757F';
+    const w = (c/total*100);
+    return `<div class="seg" style="background:${col};width:${w}%" title="${esc(k)}: ${c}">${w>8?esc(k)+' '+c:''}</div>`;
+  }).join('') || '<div class="empty">データなし</div>';
+  $('triageLegend').innerHTML = buckets.map(([k,c])=>{
+    const col = colors[k] || '#66757F';
+    return `<span style="--c:${col}">provenance: ${esc(k)} — ${c}件 (${Math.round(c/total*100)}%)</span>`;
+  }).join('');
+}
+
+function barRows(containerId, entries, field, colorFn){
+  const max = entries.length? entries[0][1] : 1;
+  $(containerId).innerHTML = entries.length ? entries.map(([k,c])=>{
+    const active = reasonFilter && reasonFilter.field===field && reasonFilter.value===k;
+    return `<div class="brow ${active?'active':''}" data-f="${field}" data-v="${esc(k)}">
+      <div class="k" title="${esc(k)}">${esc(k)}</div>
+      <div class="track"><div class="fill ${colorFn?colorFn(k):''}" style="width:${c/max*100}%"></div></div>
+      <div class="c">${c}</div></div>`;
+  }).join('') : '<div class="empty">該当なし</div>';
+  $(containerId).querySelectorAll('.brow').forEach(el=>el.addEventListener('click',()=>{
+    const f=el.dataset.f, v=el.dataset.v;
+    if(f==='prov'||f==='cons'){
+      reasonFilter = (reasonFilter && reasonFilter.field===f && reasonFilter.value===v) ? null : {field:f,value:v};
+      applyFilters();
+    }
+  }));
+}
+
+function renderReasons(){
+  barRows('provReasons', count(filtered, r=>r._provReasons), 'prov', k=>/failed|unreadable|inconsistent|not_completed/.test(k)?'bad':'warn');
+  barRows('consReasons', count(filtered, r=>r._consReasons), 'cons', k=>/after_generated|overwritten/.test(k)?'bad':'warn');
+}
+
+function renderStatus(){
+  barRows('runStatus', count(filtered, r=>r.runRequestObservedStatus?('runRequest: '+r.runRequestObservedStatus):null), 'x', k=>/failed/.test(k)?'bad':/completed/.test(k)?'':'warn');
+  barRows('jobStatus', count(filtered, r=>r.movacalJobStatus?('movacalJob: '+r.movacalJobStatus):null), 'x', k=>/blocked|failed|error/.test(k)?'bad':/completed/.test(k)?'':'warn');
+
+  // temporal matrix
+  const dims = [
+    ['listSourceTemporalStatus','list snapshot'],
+    ['detailTemporalStatus','detail cache'],
+    ['patientTemporalStatus','patient cache'],
+  ];
+  const pillCls = v => /overwritten|after_generated/.test(v)?'bad':/at_or_before/.test(v)?'ok':v?'warn':'na';
+  let html = '<tr><th>ソース</th><th>ステータス</th><th class="num">件数</th></tr>';
+  dims.forEach(([field,label])=>{
+    const ent = count(filtered, r=>r[field]||'(空)');
+    ent.forEach(([k,c],i)=>{
+      html += `<tr>${i===0?`<td rowspan="${ent.length}">${label}</td>`:''}<td><span class="pill ${pillCls(k)}">${esc(k)}</span></td><td class="num">${c}</td></tr>`;
+    });
+  });
+  $('temporalMatrix').innerHTML = html;
+}
+
+function stackedBars(containerId, keyFn){
+  const groups = count(filtered, keyFn);
+  const max = groups.length? Math.max(...groups.map(g=>g[1])) : 1;
+  $(containerId).innerHTML = groups.length ? groups.map(([g,total])=>{
+    const sub = filtered.filter(r=>{const k=keyFn(r); return (k===''?'(空)':k)===g || k===g;});
+    const f = sub.filter(r=>r._fb==='FALSE').length;
+    const t = sub.filter(r=>r._fb==='TRUE').length;
+    const o = total-f-t;
+    return `<div class="brow" style="cursor:default;grid-template-columns:minmax(160px,55%) 1fr 44px">
+      <div class="k" title="${esc(g)}">${esc(g)} <span style="color:var(--muted)">✕${f}${t?' ○'+t:''}${o>0?' 他'+o:''}</span></div>
+      <div class="track" style="height:16px">
+        <div style="position:absolute;inset:0;display:flex;border-radius:3px;overflow:hidden;width:${total/max*100}%">
+          <div style="background:var(--bad);width:${total?f/total*100:0}%"></div>
+          <div style="background:var(--accent);width:${total?t/total*100:0}%"></div>
+          <div style="background:#9AA7AE;width:${total?Math.max(0,o)/total*100:0}%"></div>
+        </div>
+      </div>
+      <div class="c">${total}</div></div>`;
+  }).join('') : '<div class="empty">該当なし</div>';
+}
+function renderGroups(){
+  stackedBars('groupBars', r=>r.generatedGroup||'(空)');
+  stackedBars('titleBars', r=>r.generatedTitle||'(空)');
+}
+
+function renderRemarkPatterns(){
+  const ent = count(filtered.filter(r=>r._remarkNorm), r=>r._remarkNorm);
+  const max = ent.length? ent[0][1] : 1;
+  $('remarkPatterns').innerHTML = ent.length ? ent.map(([k,c])=>{
+    const active = remarkFilter===k;
+    return `<div class="brow ${active?'active':''}" data-v="${esc(k)}" style="grid-template-columns:minmax(200px,55%) 1fr 44px">
+      <div class="k" title="${esc(k)}">${esc(k)}</div>
+      <div class="track"><div class="fill bad" style="width:${c/max*100}%"></div></div>
+      <div class="c">${c}</div></div>`;
+  }).join('') : '<div class="empty">コメントなし</div>';
+  $('remarkPatterns').querySelectorAll('.brow').forEach(el=>el.addEventListener('click',()=>{
+    const v=el.dataset.v;
+    remarkFilter = remarkFilter===v ? null : v;
+    applyFilters();
+  }));
+}
+
+function dupeEncounters(){
+  const m = new Map();
+  filtered.forEach(r=>{
+    if(!r.clinicId || !r.encounterId) return;
+    const k = r.clinicId+':'+r.encounterId;
+    if(!m.has(k)) m.set(k,[]);
+    m.get(k).push(r);
+  });
+  return [...m.entries()].filter(([,v])=>v.length>1).sort((a,b)=>b[1].length-a[1].length);
+}
+function renderDupes(){
+  const dupes = dupeEncounters();
+  $('dupeCount').textContent = `${dupes.length} 件`;
+  if(!dupes.length){ $('dupeTable').innerHTML='<tr><td class="empty" style="border:none">複数フィードバックの診療はありません</td></tr>'; return; }
+  let html = '<tr><th>clinic:enc</th><th class="num">FB回数</th><th>初回 → 最終</th><th>間隔</th><th>autoReceiptGroup 変化</th><th>コメント推移</th></tr>';
+  dupes.slice(0,50).forEach(([k,list])=>{
+    const sorted=[...list].sort((a,b)=>a._t-b._t);
+    const first=sorted[0], last=sorted[sorted.length-1];
+    const spanH = Math.round((last._t-first._t)/36e5*10)/10;
+    const groupsChanged = new Set(sorted.map(r=>r.autoReceiptGroupId)).size>1;
+    const remarks = sorted.map(r=>r._remarkNorm||'(なし)').join(' → ');
+    html += `<tr>
+      <td>${esc(k)}</td>
+      <td class="num">${list.length}</td>
+      <td>${fmtDt(first.createdAt)} → ${fmtDt(last.createdAt)}</td>
+      <td class="num">${spanH}h</td>
+      <td><span class="pill ${groupsChanged?'warn':'na'}">${groupsChanged?'あり（再生成後も指摘）':'なし（同一グループ）'}</span></td>
+      <td style="white-space:normal;max-width:340px">${esc(remarks)}</td>
+    </tr>`;
+  });
+  $('dupeTable').innerHTML = html;
+}
+
+function renderRemarks(){
+  const list = filtered.filter(r=>r.remarks && String(r.remarks).trim()).sort((a,b)=>b._t-a._t);
+  $('remarkCount').textContent = `${list.length} 件`;
+  $('remarks').innerHTML = list.length ? list.slice(0,200).map(r=>`
+    <div class="remark ${r._fb==='TRUE'?'true':''}">
+      <div class="meta">
+        <span>clinic ${esc(r.clinicId)}</span><span>enc ${esc(r.encounterId)}</span>
+        <span>${esc(r.resolvedYearMonth||'')}</span>
+        <span>feedback: ${esc(r._fb)}</span>
+        <span>${fmtDt(r.createdAt)}</span>
+      </div>
+      <div class="txt">${esc(r.remarks)}</div>
+      ${r.generatedTitle?`<div class="gen">生成: ${esc(r.generatedTitle)}${r.generatedWarning?` ／ 警告: ${esc(r.generatedWarning)}`:''}${r.generatedReasons?` ／ 摘要: ${esc(r.generatedReasons)}`:''}</div>`:''}
+    </div>`).join('') : '<div class="empty">コメント付きフィードバックはありません</div>';
+}
+
+// ---------- table ----------
+const cols = [
+  ['createdAt','日時', r=>fmtDt(r.createdAt)],
+  ['clinicId','clinic'],
+  ['encounterId','enc'],
+  ['resolvedYearMonth','年月'],
+  ['_fb','FB', r=>`<span class="pill ${r._fb==='FALSE'?'bad':r._fb==='TRUE'?'ok':'na'}">${r._fb}</span>`],
+  ['generatedGroup','グループ'],
+  ['provenanceStatus','provenance', r=>`<span class="pill ${r.provenanceStatus==='ambiguous'?'bad':/verified|unique|ok/.test(r.provenanceStatus||'')?'ok':'warn'}">${esc(r.provenanceStatus||'')}</span>`],
+  ['sourceConsistencyStatus','consistency', r=>`<span class="pill ${r.sourceConsistencyStatus==='inconsistent'?'bad':r.sourceConsistencyStatus==='consistent'?'ok':'warn'}">${esc(r.sourceConsistencyStatus||'')}</span>`],
+  ['runRequestObservedStatus','runReq'],
+  ['movacalJobStatus','job'],
+  ['remarks','コメント', r=>esc(String(r.remarks||'').slice(0,30))+(String(r.remarks||'').length>30?'…':'')],
+];
+function renderTableHead(){
+  $('tblHead').innerHTML = '<tr>'+cols.map(([k,l])=>`<th data-k="${k}">${l}${sortKey===k?`<span class="arr"> ${sortDir>0?'▲':'▼'}</span>`:''}</th>`).join('')+'</tr>';
+  $('tblHead').querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
+    const k=th.dataset.k;
+    if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=-1;}
+    renderTable();
+  }));
+}
+function renderTable(){
+  renderTableHead();
+  const sorted=[...filtered].sort((a,b)=>{
+    let va=a[sortKey], vb=b[sortKey];
+    if(sortKey==='createdAt'){va=a._t;vb=b._t;}
+    va=va??'';vb=vb??'';
+    return (va<vb?-1:va>vb?1:0)*sortDir;
+  });
+  const slice=sorted.slice(0,tableLimit);
+  $('tblBody').innerHTML = slice.map((r,i)=>`
+    <tr class="main" data-i="${i}">${cols.map(([k,,fn])=>`<td>${fn?fn(r):esc(r[k]??'')}</td>`).join('')}</tr>
+    <tr class="detail" style="display:none"><td colspan="${cols.length}">${detailHtml(r)}</td></tr>`).join('');
+  $('tblBody').querySelectorAll('tr.main').forEach(tr=>tr.addEventListener('click',()=>{
+    const d=tr.nextElementSibling;
+    d.style.display = d.style.display==='none'?'':'none';
+  }));
+  $('moreBtn').style.display = sorted.length>tableLimit?'inline-block':'none';
+  $('moreBtn').textContent = `さらに表示（残り ${Math.max(0,sorted.length-tableLimit)} 件）`;
+}
+$('moreBtn').addEventListener('click',()=>{tableLimit+=100;renderTable();});
+function detailHtml(r){
+  const skip=new Set(['_provReasons','_consReasons','_missingKinds','_fb','_t']);
+  const entries=Object.entries(r).filter(([k,v])=>!skip.has(k)&&v!==''&&v!==null&&v!==undefined);
+  return `<div class="kv">${entries.map(([k,v])=>`<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}</div>`;
+}
+</script>
+</body>
+</html>
