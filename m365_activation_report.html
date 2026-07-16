@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Microsoft 365 ライセンス アクティベーション レポート</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #1a2733;
+    --ink-soft: #5b6b7a;
+    --paper: #f5f7f9;
+    --card: #ffffff;
+    --line: #e2e8ee;
+    --teal: #0f6f7c;
+    --teal-soft: #e3f1f3;
+    --amber: #d98b1f;
+    --amber-soft: #fbf1de;
+    --red: #c0442e;
+    --red-soft: #f9e8e4;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  /* Header */
+  header { border-bottom: 3px solid var(--ink); padding-bottom: 20px; margin-bottom: 32px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .14em; color: var(--teal);
+    font-weight: 700; text-transform: uppercase; margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: .01em; }
+  .meta { margin-top: 8px; font-size: 13px; color: var(--ink-soft); display: flex; gap: 20px; flex-wrap: wrap; }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* KPI cards */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 36px; }
+  .kpi {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; position: relative; overflow: hidden;
+  }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background: var(--teal); }
+  .kpi.warn::before { background: var(--amber); }
+  .kpi .label { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+  .kpi .value { font-size: 32px; font-weight: 700; font-family: var(--mono); line-height: 1.2; }
+  .kpi .sub { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+
+  /* Sections */
+  section { margin-bottom: 40px; }
+  h2 {
+    font-size: 15px; font-weight: 700; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2::after { content:""; flex:1; height:1px; background: var(--line); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px){ .grid2 { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .panel h3 { font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 12px; }
+
+  /* Timeline (signature element) */
+  .timeline { position: relative; height: 130px; margin: 10px 6px 0; }
+  .tl-axis { position:absolute; left:0; right:0; top:64px; height:2px; background: var(--ink); }
+  .tl-tick { position:absolute; top:58px; width:1px; height:14px; background:var(--ink-soft); }
+  .tl-tick span { position:absolute; top:18px; left:50%; transform:translateX(-50%); font-size:11px; font-family:var(--mono); color:var(--ink-soft); white-space:nowrap; }
+  .tl-dot {
+    position:absolute; top:64px; transform:translate(-50%,-50%);
+    width:14px; height:14px; border-radius:50%;
+    background: var(--teal); border: 3px solid var(--card);
+    box-shadow: 0 0 0 1.5px var(--teal); cursor: default;
+  }
+  .tl-dot.u-a { background: var(--teal); box-shadow: 0 0 0 1.5px var(--teal); }
+  .tl-dot.u-d { background: var(--amber); box-shadow: 0 0 0 1.5px var(--amber); }
+  .tl-dot.u-e { background: var(--red); box-shadow: 0 0 0 1.5px var(--red); }
+  .tl-label {
+    position:absolute; transform: translateX(-50%);
+    font-size: 11px; font-family: var(--mono); color: var(--ink);
+    white-space: nowrap; text-align: center;
+  }
+  .tl-label small { display:block; color: var(--ink-soft); font-size: 10px; }
+  .legend { display:flex; gap:18px; margin-top: 8px; font-size:12px; color:var(--ink-soft); flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:-1px; }
+
+  /* Table */
+  table { width:100%; border-collapse: collapse; font-size: 13.5px; background: var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  thead th {
+    text-align:left; font-size:12px; color:var(--ink-soft); font-weight:600;
+    padding: 10px 14px; background: var(--paper); border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--mono); text-align: right; }
+  td.zero { color: #b8c2cc; }
+  .upn { font-family: var(--mono); font-size: 12.5px; }
+  .badge {
+    display:inline-block; font-size:11px; font-weight:600; padding: 2px 8px; border-radius: 20px;
+  }
+  .badge.dup { background: var(--amber-soft); color: var(--amber); }
+
+  .note {
+    margin-top: 14px; padding: 14px 16px; background: var(--amber-soft);
+    border-left: 4px solid var(--amber); border-radius: 6px; font-size: 13px;
+  }
+  .note b { font-weight: 700; }
+
+  /* User status cards */
+  .users { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .ucard {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; border-top: 5px solid var(--line);
+  }
+  .ucard.s-ok    { border-top-color: #2e8b57; }
+  .ucard.s-warn  { border-top-color: var(--amber); }
+  .ucard.s-stale { border-top-color: var(--red); }
+  .ucard .uhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .ucard .uname { font-weight:700; font-size:15px; }
+  .ucard .uupn { font-family: var(--mono); font-size:12px; color:var(--ink-soft); }
+  .status {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px; white-space:nowrap;
+  }
+  .status::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; }
+  .status.s-ok    { background:#e6f3ec; color:#2e7d4f; }
+  .status.s-warn  { background:var(--amber-soft); color:var(--amber); }
+  .status.s-stale { background:var(--red-soft); color:var(--red); }
+  .ucard .days { font-family:var(--mono); font-size:28px; font-weight:700; line-height:1.1; }
+  .ucard .days small { font-size:12px; font-weight:400; color:var(--ink-soft); font-family:inherit; margin-left:4px; }
+  .ucard .udetail { margin-top:6px; font-size:12.5px; color:var(--ink-soft); }
+  .ucard .udetail b { color:var(--ink); font-weight:600; font-family:var(--mono); }
+  .hint { margin-top:12px; font-size:12px; color:var(--ink-soft); }
+
+  canvas { max-height: 260px; }
+  footer { margin-top: 48px; font-size: 12px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Microsoft 365 Admin Report</div>
+    <h1>ライセンス アクティベーション状況</h1>
+    <div class="meta">
+      <span>レポート更新日: <b id="refreshDate">—</b></span>
+      <span>製品: <b>Microsoft 365 Apps for business</b></span>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>ユーザー別 利用状況</h2>
+    <div class="users" id="users"></div>
+    <div class="hint">※ 判定基準:最終アクティベーションからの経過日数(レポート更新日 2026/07/13 時点)。<span style="color:#2e7d4f;font-weight:600">90日以内 = 利用中</span> / <span style="color:var(--amber);font-weight:600">91日〜1年 = 要確認</span> / <span style="color:var(--red);font-weight:600">1年超 = 未利用の可能性</span></div>
+  </section>
+
+  <section>
+    <h2>アクティベーション タイムライン</h2>
+    <div class="panel">
+      <h3>初回アクティベーション日の分布(2024年9月〜2026年6月)</h3>
+      <div class="timeline" id="timeline"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="grid2">
+      <div class="panel">
+        <h3>プラットフォーム別デバイス数(合計)</h3>
+        <canvas id="platformChart"></canvas>
+      </div>
+      <div class="panel">
+        <h3>ユーザー別デバイス数</h3>
+        <canvas id="userChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>明細データ</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ユーザー (UPN)</th>
+          <th>表示名</th>
+          <th>最終アクティベーション日</th>
+          <th style="text-align:right">Windows</th>
+          <th style="text-align:right">Mac</th>
+          <th style="text-align:right">iOS</th>
+          <th style="text-align:right">Android</th>
+          <th>共有PC</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="note" id="dupNote" style="display:none"></div>
+  </section>
+
+  <footer>データソース: Microsoft 365 管理センター — Office アクティベーション レポート(CSV)</footer>
+</div>
+
+<script>
+const rows = [
+  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2026/06/09", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
+  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2024/09/02", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
+  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2024/10/08", win:2, mac:1, wm:0, ios:0, android:0, shared:false },
+  { refresh:"2026/07/13", upn:"d@gmail.com", name:"d", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2025/08/21", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
+  { refresh:"2026/07/13", upn:"e@gmail.com", name:"d", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2025/01/16", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
+];
+
+const COLORS = { "a@gmail.com": "#0f6f7c", "d@gmail.com": "#d98b1f", "e@gmail.com": "#c0442e" };
+const CLASSMAP = { "a@gmail.com": "u-a", "d@gmail.com": "u-d", "e@gmail.com": "u-e" };
+
+document.getElementById("refreshDate").textContent = rows[0].refresh;
+
+// ---- KPIs ----
+const uniqueUsers = [...new Set(rows.map(r => r.upn))];
+const totalDevices = rows.reduce((s,r)=> s + r.win + r.mac + r.wm + r.ios + r.android, 0);
+const latest = rows.map(r=>r.activated).sort().at(-1);
+const dupUsers = uniqueUsers.filter(u => rows.filter(r=>r.upn===u).length > 1);
+
+const kpis = [
+  { label: "レコード数", value: rows.length, sub: "アクティベーション記録" },
+  { label: "ユニークユーザー", value: uniqueUsers.length, sub: uniqueUsers.join(" / ") },
+  { label: "総デバイス数", value: totalDevices, sub: "Windows " + rows.reduce((s,r)=>s+r.win,0) + " 台 / Mac " + rows.reduce((s,r)=>s+r.mac,0) + " 台" },
+  { label: "重複レコードのユーザー", value: dupUsers.length, sub: dupUsers.join(", ") || "なし", warn: dupUsers.length > 0 },
+];
+document.getElementById("kpis").innerHTML = kpis.map(k => `
+  <div class="kpi${k.warn ? " warn" : ""}">
+    <div class="label">${k.label}</div>
+    <div class="value">${k.value}</div>
+    <div class="sub">${k.sub}</div>
+  </div>`).join("");
+
+// ---- User status cards ----
+const refreshT = new Date(rows[0].refresh.replace(/\//g,"-")).getTime();
+const userStatus = uniqueUsers.map(u => {
+  const rs = rows.filter(r=>r.upn===u);
+  const latestAct = rs.map(r=>r.activated).sort().at(-1);
+  const days = Math.floor((refreshT - new Date(latestAct.replace(/\//g,"-")).getTime()) / 86400000);
+  let cls, label;
+  if (days <= 90)       { cls = "s-ok";    label = "利用中"; }
+  else if (days <= 365) { cls = "s-warn";  label = "要確認"; }
+  else                  { cls = "s-stale"; label = "未利用の可能性"; }
+  const devices = rs.reduce((s,r)=> s + r.win + r.mac + r.wm + r.ios + r.android, 0);
+  return { upn: u, name: rs[0].name, latestAct, days, cls, label, devices, records: rs.length };
+}).sort((a,b)=> b.days - a.days); // 放置が長い順(要対応が先頭)
+
+document.getElementById("users").innerHTML = userStatus.map(s => `
+  <div class="ucard ${s.cls}">
+    <div class="uhead">
+      <div>
+        <div class="uname">${s.name}</div>
+        <div class="uupn">${s.upn}</div>
+      </div>
+      <span class="status ${s.cls}">${s.label}</span>
+    </div>
+    <div class="days">${s.days}<small>日 経過</small></div>
+    <div class="udetail">最終アクティベーション: <b>${s.latestAct}</b> ・ デバイス ${s.devices} 台 ・ レコード ${s.records} 件</div>
+  </div>`).join("");
+
+// ---- Timeline ----
+const tl = document.getElementById("timeline");
+const dates = rows.map(r => ({ ...r, t: new Date(r.activated.replace(/\//g,"-")).getTime() }));
+const tMin = new Date("2024-08-01").getTime();
+const tMax = new Date("2026-08-01").getTime();
+const pct = t => ((t - tMin) / (tMax - tMin)) * 100;
+
+// axis ticks: each Jan + endpoints
+["2024/09","2025/01","2025/07","2026/01","2026/07"].forEach(lab => {
+  const t = new Date(lab.replace("/","-") + "-01").getTime();
+  const tick = document.createElement("div");
+  tick.className = "tl-tick";
+  tick.style.left = pct(t) + "%";
+  tick.innerHTML = `<span>${lab}</span>`;
+  tl.appendChild(tick);
+});
+
+// alternate labels above/below to avoid collision
+const sorted = [...dates].sort((a,b)=>a.t-b.t);
+sorted.forEach((r, i) => {
+  const x = pct(r.t);
+  const dot = document.createElement("div");
+  dot.className = "tl-dot " + (CLASSMAP[r.upn] || "");
+  dot.style.left = x + "%";
+  dot.title = `${r.upn} — ${r.activated}`;
+  tl.appendChild(dot);
+
+  const lab = document.createElement("div");
+  lab.className = "tl-label";
+  lab.style.left = x + "%";
+  lab.style.top = (i % 2 === 0) ? "18px" : "84px";
+  lab.innerHTML = `${r.name}<small>${r.activated.slice(2)}</small>`;
+  tl.appendChild(lab);
+});
+
+document.getElementById("legend").innerHTML = uniqueUsers.map(u =>
+  `<span><i style="background:${COLORS[u]}"></i>${u}</span>`).join("");
+
+// ---- Charts ----
+const chartFont = { family: '"Hiragino Sans","Yu Gothic",Meiryo,sans-serif', size: 12 };
+Chart.defaults.font = chartFont;
+Chart.defaults.color = "#5b6b7a";
+
+new Chart(document.getElementById("platformChart"), {
+  type: "bar",
+  data: {
+    labels: ["Windows", "Mac", "Windows 10 Mobile", "iOS", "Android"],
+    datasets: [{
+      data: [
+        rows.reduce((s,r)=>s+r.win,0),
+        rows.reduce((s,r)=>s+r.mac,0),
+        rows.reduce((s,r)=>s+r.wm,0),
+        rows.reduce((s,r)=>s+r.ios,0),
+        rows.reduce((s,r)=>s+r.android,0),
+      ],
+      backgroundColor: ["#0f6f7c","#4aa3ad","#c7d5da","#c7d5da","#c7d5da"],
+      borderRadius: 5,
+    }]
+  },
+  options: {
+    plugins: { legend: { display:false } },
+    scales: { y: { beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:"#eef2f5" } }, x:{ grid:{ display:false } } }
+  }
+});
+
+const byUser = uniqueUsers.map(u => {
+  const rs = rows.filter(r=>r.upn===u);
+  return {
+    upn: u,
+    win: rs.reduce((s,r)=>s+r.win,0),
+    mac: rs.reduce((s,r)=>s+r.mac,0),
+  };
+});
+
+new Chart(document.getElementById("userChart"), {
+  type: "bar",
+  data: {
+    labels: byUser.map(b=>b.upn),
+    datasets: [
+      { label:"Windows", data: byUser.map(b=>b.win), backgroundColor:"#0f6f7c", borderRadius:5 },
+      { label:"Mac", data: byUser.map(b=>b.mac), backgroundColor:"#d98b1f", borderRadius:5 },
+    ]
+  },
+  options: {
+    indexAxis: "y",
+    plugins: { legend: { position:"bottom" } },
+    scales: {
+      x: { stacked:true, beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:"#eef2f5" } },
+      y: { stacked:true, grid:{ display:false } }
+    }
+  }
+});
+
+// ---- Table ----
+document.getElementById("tbody").innerHTML = rows.map(r => {
+  const isDup = dupUsers.includes(r.upn);
+  const cell = v => `<td class="num${v===0?" zero":""}">${v}</td>`;
+  return `<tr>
+    <td><span class="upn">${r.upn}</span>${isDup ? ' <span class="badge dup">重複</span>' : ""}</td>
+    <td>${r.name}</td>
+    <td class="num">${r.activated}</td>
+    ${cell(r.win)}${cell(r.mac)}${cell(r.ios)}${cell(r.android)}
+    <td>${r.shared ? "はい" : "いいえ"}</td>
+  </tr>`;
+}).join("");
+
+// ---- Duplicate note ----
+if (dupUsers.length) {
+  const u = dupUsers[0];
+  const cnt = rows.filter(r=>r.upn===u).length;
+  document.getElementById("dupNote").style.display = "block";
+  document.getElementById("dupNote").innerHTML =
+    `<b>注意:</b> <span class="upn">${u}</span> に ${cnt} 件のアクティベーションレコードが存在します。` +
+    `複数ライセンスの割り当て、または再アクティベーション履歴の可能性があります。管理センターでライセンス割り当て状況の確認を推奨します。`;
+}
+</script>
+</body>
+</html>
