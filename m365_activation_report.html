@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Microsoft 365 ライセンス アクティベーション レポート</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root {
     --ink: #1a2733;
@@ -18,6 +19,8 @@
     --amber-soft: #fbf1de;
     --red: #c0442e;
     --red-soft: #f9e8e4;
+    --green: #2e7d4f;
+    --green-soft: #e5f3ea;
     --mono: "SF Mono", "Consolas", "Menlo", monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -29,115 +32,119 @@
   }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 72px; }
 
-  /* Header */
   header { border-bottom: 3px solid var(--ink); padding-bottom: 20px; margin-bottom: 32px; }
-  .eyebrow {
-    font-size: 12px; letter-spacing: .14em; color: var(--teal);
-    font-weight: 700; text-transform: uppercase; margin-bottom: 6px;
-  }
-  h1 { font-size: 26px; font-weight: 700; letter-spacing: .01em; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; color: var(--teal); font-weight: 700; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-size: 26px; font-weight: 700; }
   .meta { margin-top: 8px; font-size: 13px; color: var(--ink-soft); display: flex; gap: 20px; flex-wrap: wrap; }
   .meta b { color: var(--ink); font-weight: 600; }
 
-  /* KPI cards */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 36px; }
-  .kpi {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-    padding: 18px 20px; position: relative; overflow: hidden;
+  /* Upload zone */
+  .dropzone {
+    background: var(--card); border: 2px dashed #b8c8d2; border-radius: 14px;
+    padding: 56px 24px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
   }
+  .dropzone.drag { border-color: var(--teal); background: var(--teal-soft); }
+  .dropzone .icon { font-size: 40px; margin-bottom: 10px; }
+  .dropzone h2 { font-size: 17px; font-weight: 700; justify-content: center; }
+  .dropzone h2::after { display: none; }
+  .dropzone p { font-size: 13px; color: var(--ink-soft); margin-top: 6px; }
+  .dropzone .btn {
+    display:inline-block; margin-top: 18px; background: var(--teal); color: #fff;
+    font-size: 14px; font-weight: 600; padding: 10px 26px; border-radius: 8px; border: none; cursor: pointer;
+  }
+  .dropzone .btn:hover { background: #0c5a65; }
+  .or { margin: 22px 0 10px; font-size: 12px; color: var(--ink-soft); }
+  textarea {
+    width: 100%; max-width: 720px; height: 110px; font-family: var(--mono); font-size: 12px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; color: var(--ink);
+  }
+  .parse-btn {
+    display:block; margin: 12px auto 0; background: #fff; color: var(--teal);
+    border: 1.5px solid var(--teal); font-size: 13px; font-weight: 600;
+    padding: 8px 22px; border-radius: 8px; cursor: pointer;
+  }
+  .parse-btn:hover { background: var(--teal-soft); }
+  .parse-error { margin-top: 12px; color: var(--red); font-size: 13px; display: none; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+  .file-chip { font-size: 13px; color: var(--ink-soft); }
+  .file-chip b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+  .reload-btn {
+    background: none; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 13px; padding: 7px 16px; cursor: pointer; color: var(--ink-soft);
+  }
+  .reload-btn:hover { border-color: var(--teal); color: var(--teal); }
+
+  /* KPI cards */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 36px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; position: relative; overflow: hidden; }
   .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background: var(--teal); }
   .kpi.warn::before { background: var(--amber); }
+  .kpi.danger::before { background: var(--red); }
   .kpi .label { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
   .kpi .value { font-size: 32px; font-weight: 700; font-family: var(--mono); line-height: 1.2; }
-  .kpi .sub { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  .kpi.danger .value { color: var(--red); }
+  .kpi .sub { font-size: 12px; color: var(--ink-soft); margin-top: 4px; overflow-wrap: anywhere; }
 
-  /* Sections */
   section { margin-bottom: 40px; }
-  h2 {
-    font-size: 15px; font-weight: 700; margin-bottom: 14px;
-    display: flex; align-items: center; gap: 10px;
-  }
+  h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
   h2::after { content:""; flex:1; height:1px; background: var(--line); }
 
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   @media (max-width: 760px){ .grid2 { grid-template-columns: 1fr; } }
-
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
   .panel h3 { font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 12px; }
 
-  /* Timeline (signature element) */
+  /* Deactivated banner */
+  .deact-banner {
+    background: var(--red-soft); border: 1px solid #ecc6bd; border-left: 5px solid var(--red);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 36px;
+  }
+  .deact-banner h2 { color: var(--red); margin-bottom: 10px; }
+  .deact-banner h2::after { background: #ecc6bd; }
+  .deact-list { display: flex; flex-wrap: wrap; gap: 10px; }
+  .deact-card {
+    background: #fff; border: 1px solid #ecc6bd; border-radius: 8px;
+    padding: 10px 16px; font-size: 13px;
+  }
+  .deact-card .upn { font-weight: 600; }
+  .deact-card .why { display: block; font-size: 11.5px; color: var(--red); margin-top: 2px; }
+  .deact-ok {
+    background: var(--green-soft); border: 1px solid #c4e0cf; border-left: 5px solid var(--green);
+    border-radius: 10px; padding: 14px 20px; margin-bottom: 36px; font-size: 14px; color: var(--green); font-weight: 600;
+  }
+
+  /* Timeline */
   .timeline { position: relative; height: 130px; margin: 10px 6px 0; }
   .tl-axis { position:absolute; left:0; right:0; top:64px; height:2px; background: var(--ink); }
   .tl-tick { position:absolute; top:58px; width:1px; height:14px; background:var(--ink-soft); }
   .tl-tick span { position:absolute; top:18px; left:50%; transform:translateX(-50%); font-size:11px; font-family:var(--mono); color:var(--ink-soft); white-space:nowrap; }
-  .tl-dot {
-    position:absolute; top:64px; transform:translate(-50%,-50%);
-    width:14px; height:14px; border-radius:50%;
-    background: var(--teal); border: 3px solid var(--card);
-    box-shadow: 0 0 0 1.5px var(--teal); cursor: default;
-  }
-  .tl-dot.u-a { background: var(--teal); box-shadow: 0 0 0 1.5px var(--teal); }
-  .tl-dot.u-d { background: var(--amber); box-shadow: 0 0 0 1.5px var(--amber); }
-  .tl-dot.u-e { background: var(--red); box-shadow: 0 0 0 1.5px var(--red); }
-  .tl-label {
-    position:absolute; transform: translateX(-50%);
-    font-size: 11px; font-family: var(--mono); color: var(--ink);
-    white-space: nowrap; text-align: center;
-  }
+  .tl-dot { position:absolute; top:64px; transform:translate(-50%,-50%); width:14px; height:14px; border-radius:50%; border: 3px solid var(--card); cursor: default; }
+  .tl-label { position:absolute; transform: translateX(-50%); font-size: 11px; font-family: var(--mono); color: var(--ink); white-space: nowrap; text-align: center; }
   .tl-label small { display:block; color: var(--ink-soft); font-size: 10px; }
   .legend { display:flex; gap:18px; margin-top: 8px; font-size:12px; color:var(--ink-soft); flex-wrap:wrap; }
   .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:-1px; }
 
   /* Table */
   table { width:100%; border-collapse: collapse; font-size: 13.5px; background: var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  thead th {
-    text-align:left; font-size:12px; color:var(--ink-soft); font-weight:600;
-    padding: 10px 14px; background: var(--paper); border-bottom: 1px solid var(--line);
-  }
+  thead th { text-align:left; font-size:12px; color:var(--ink-soft); font-weight:600; padding: 10px 14px; background: var(--paper); border-bottom: 1px solid var(--line); }
   tbody td { padding: 11px 14px; border-bottom: 1px solid var(--line); }
   tbody tr:last-child td { border-bottom: none; }
+  tbody tr.row-deact { background: var(--red-soft); }
   td.num { font-family: var(--mono); text-align: right; }
   td.zero { color: #b8c2cc; }
   .upn { font-family: var(--mono); font-size: 12.5px; }
-  .badge {
-    display:inline-block; font-size:11px; font-weight:600; padding: 2px 8px; border-radius: 20px;
-  }
+  .badge { display:inline-block; font-size:11px; font-weight:600; padding: 2px 8px; border-radius: 20px; }
   .badge.dup { background: var(--amber-soft); color: var(--amber); }
+  .badge.deact { background: var(--red); color: #fff; }
+  .badge.active { background: var(--green-soft); color: var(--green); }
 
-  .note {
-    margin-top: 14px; padding: 14px 16px; background: var(--amber-soft);
-    border-left: 4px solid var(--amber); border-radius: 6px; font-size: 13px;
-  }
-  .note b { font-weight: 700; }
-
-  /* User status cards */
-  .users { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-  .ucard {
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 18px 20px; border-top: 5px solid var(--line);
-  }
-  .ucard.s-ok    { border-top-color: #2e8b57; }
-  .ucard.s-warn  { border-top-color: var(--amber); }
-  .ucard.s-stale { border-top-color: var(--red); }
-  .ucard .uhead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-  .ucard .uname { font-weight:700; font-size:15px; }
-  .ucard .uupn { font-family: var(--mono); font-size:12px; color:var(--ink-soft); }
-  .status {
-    display:inline-flex; align-items:center; gap:6px;
-    font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px; white-space:nowrap;
-  }
-  .status::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; }
-  .status.s-ok    { background:#e6f3ec; color:#2e7d4f; }
-  .status.s-warn  { background:var(--amber-soft); color:var(--amber); }
-  .status.s-stale { background:var(--red-soft); color:var(--red); }
-  .ucard .days { font-family:var(--mono); font-size:28px; font-weight:700; line-height:1.1; }
-  .ucard .days small { font-size:12px; font-weight:400; color:var(--ink-soft); font-family:inherit; margin-left:4px; }
-  .ucard .udetail { margin-top:6px; font-size:12.5px; color:var(--ink-soft); }
-  .ucard .udetail b { color:var(--ink); font-weight:600; font-family:var(--mono); }
-  .hint { margin-top:12px; font-size:12px; color:var(--ink-soft); }
+  .note { margin-top: 14px; padding: 14px 16px; background: var(--amber-soft); border-left: 4px solid var(--amber); border-radius: 6px; font-size: 13px; }
 
   canvas { max-height: 260px; }
   footer { margin-top: 48px; font-size: 12px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 14px; }
+  #dashboard { display: none; }
 </style>
 </head>
 <body>
@@ -146,240 +153,404 @@
   <header>
     <div class="eyebrow">Microsoft 365 Admin Report</div>
     <h1>ライセンス アクティベーション状況</h1>
-    <div class="meta">
+    <div class="meta" id="headerMeta" style="display:none">
       <span>レポート更新日: <b id="refreshDate">—</b></span>
-      <span>製品: <b>Microsoft 365 Apps for business</b></span>
+      <span>製品: <b id="productType">—</b></span>
     </div>
   </header>
 
-  <div class="kpis" id="kpis"></div>
-
-  <section>
-    <h2>ユーザー別 利用状況</h2>
-    <div class="users" id="users"></div>
-    <div class="hint">※ 判定基準:最終アクティベーションからの経過日数(レポート更新日 2026/07/13 時点)。<span style="color:#2e7d4f;font-weight:600">90日以内 = 利用中</span> / <span style="color:var(--amber);font-weight:600">91日〜1年 = 要確認</span> / <span style="color:var(--red);font-weight:600">1年超 = 未利用の可能性</span></div>
-  </section>
-
-  <section>
-    <h2>アクティベーション タイムライン</h2>
-    <div class="panel">
-      <h3>初回アクティベーション日の分布(2024年9月〜2026年6月)</h3>
-      <div class="timeline" id="timeline"></div>
-      <div class="legend" id="legend"></div>
+  <!-- ========== Upload UI ========== -->
+  <div id="uploader">
+    <div class="dropzone" id="dropzone">
+      <div class="icon">📄</div>
+      <h2>CSVファイルをここにドラッグ&ドロップ</h2>
+      <p>Microsoft 365 管理センターの「Office アクティベーション」レポート(CSV / TSV)に対応しています</p>
+      <button class="btn" id="pickBtn" type="button">ファイルを選択</button>
+      <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none">
     </div>
-  </section>
-
-  <section>
-    <div class="grid2">
-      <div class="panel">
-        <h3>プラットフォーム別デバイス数(合計)</h3>
-        <canvas id="platformChart"></canvas>
-      </div>
-      <div class="panel">
-        <h3>ユーザー別デバイス数</h3>
-        <canvas id="userChart"></canvas>
-      </div>
+    <div style="text-align:center">
+      <p class="or">— または、CSVの内容を直接貼り付け —</p>
+      <textarea id="pasteArea" placeholder="Report Refresh Date&#9;User Principal Name&#9;Display Name&#9;..."></textarea>
+      <button class="parse-btn" id="parseBtn" type="button">貼り付けたデータを読み込む</button>
+      <p class="parse-error" id="parseError"></p>
     </div>
-  </section>
+  </div>
 
-  <section>
-    <h2>明細データ</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>ユーザー (UPN)</th>
-          <th>表示名</th>
-          <th>最終アクティベーション日</th>
-          <th style="text-align:right">Windows</th>
-          <th style="text-align:right">Mac</th>
-          <th style="text-align:right">iOS</th>
-          <th style="text-align:right">Android</th>
-          <th>共有PC</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-    <div class="note" id="dupNote" style="display:none"></div>
-  </section>
+  <!-- ========== Dashboard ========== -->
+  <div id="dashboard">
+    <div class="toolbar">
+      <span class="file-chip" id="fileChip"></span>
+      <button class="reload-btn" id="resetBtn" type="button">↺ 別のCSVを読み込む</button>
+    </div>
 
-  <footer>データソース: Microsoft 365 管理センター — Office アクティベーション レポート(CSV)</footer>
+    <div id="deactSection"></div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <section>
+      <h2>アクティベーション タイムライン</h2>
+      <div class="panel">
+        <h3 id="tlSub">初回アクティベーション日の分布</h3>
+        <div class="timeline" id="timeline"></div>
+        <div class="legend" id="legend"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="grid2">
+        <div class="panel">
+          <h3>プラットフォーム別デバイス数(合計)</h3>
+          <canvas id="platformChart"></canvas>
+        </div>
+        <div class="panel">
+          <h3>ユーザー別デバイス数</h3>
+          <canvas id="userChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>明細データ</h2>
+      <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>ユーザー (UPN)</th>
+            <th>表示名</th>
+            <th>最終アクティベーション日</th>
+            <th style="text-align:right">Windows</th>
+            <th style="text-align:right">Mac</th>
+            <th style="text-align:right">iOS</th>
+            <th style="text-align:right">Android</th>
+            <th>共有PC</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      </div>
+      <div class="note" id="dupNote" style="display:none"></div>
+    </section>
+
+    <footer>データソース: Microsoft 365 管理センター — Office アクティベーション レポート(CSV)</footer>
+  </div>
 </div>
 
 <script>
-const rows = [
-  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2026/06/09", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
-  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2024/09/02", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
-  { refresh:"2026/07/13", upn:"a@gmail.com", name:"a", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2024/10/08", win:2, mac:1, wm:0, ios:0, android:0, shared:false },
-  { refresh:"2026/07/13", upn:"d@gmail.com", name:"d", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2025/08/21", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
-  { refresh:"2026/07/13", upn:"e@gmail.com", name:"d", product:"MICROSOFT 365 APPS FOR BUSINESS", activated:"2025/01/16", win:1, mac:0, wm:0, ios:0, android:0, shared:false },
-];
+"use strict";
 
-const COLORS = { "a@gmail.com": "#0f6f7c", "d@gmail.com": "#d98b1f", "e@gmail.com": "#c0442e" };
-const CLASSMAP = { "a@gmail.com": "u-a", "d@gmail.com": "u-d", "e@gmail.com": "u-e" };
+const PALETTE = ["#0f6f7c","#d98b1f","#c0442e","#5a4fa2","#2e7d4f","#a8326e","#3d6bb3","#8a6d1f"];
+let charts = [];
 
-document.getElementById("refreshDate").textContent = rows[0].refresh;
+/* ---------- Column resolution (JP/EN header support) ---------- */
+const COLDEFS = {
+  refresh:  ["report refresh date","レポートの更新日","レポート更新日"],
+  upn:      ["user principal name","ユーザー プリンシパル名","ユーザープリンシパル名"],
+  name:     ["display name","表示名"],
+  product:  ["product type","製品の種類","製品タイプ"],
+  activated:["last activated date","最終アクティブ化日","最終ライセンス認証日","最後にアクティブ化された日付"],
+  win:      ["windows"],
+  mac:      ["mac"],
+  wm:       ["windows 10 mobile"],
+  ios:      ["ios"],
+  android:  ["android"],
+  shared:   ["activated on shared computer","共有コンピューターでのライセンス認証","共有コンピューターでアクティブ化"]
+};
 
-// ---- KPIs ----
-const uniqueUsers = [...new Set(rows.map(r => r.upn))];
-const totalDevices = rows.reduce((s,r)=> s + r.win + r.mac + r.wm + r.ios + r.android, 0);
-const latest = rows.map(r=>r.activated).sort().at(-1);
-const dupUsers = uniqueUsers.filter(u => rows.filter(r=>r.upn===u).length > 1);
-
-const kpis = [
-  { label: "レコード数", value: rows.length, sub: "アクティベーション記録" },
-  { label: "ユニークユーザー", value: uniqueUsers.length, sub: uniqueUsers.join(" / ") },
-  { label: "総デバイス数", value: totalDevices, sub: "Windows " + rows.reduce((s,r)=>s+r.win,0) + " 台 / Mac " + rows.reduce((s,r)=>s+r.mac,0) + " 台" },
-  { label: "重複レコードのユーザー", value: dupUsers.length, sub: dupUsers.join(", ") || "なし", warn: dupUsers.length > 0 },
-];
-document.getElementById("kpis").innerHTML = kpis.map(k => `
-  <div class="kpi${k.warn ? " warn" : ""}">
-    <div class="label">${k.label}</div>
-    <div class="value">${k.value}</div>
-    <div class="sub">${k.sub}</div>
-  </div>`).join("");
-
-// ---- User status cards ----
-const refreshT = new Date(rows[0].refresh.replace(/\//g,"-")).getTime();
-const userStatus = uniqueUsers.map(u => {
-  const rs = rows.filter(r=>r.upn===u);
-  const latestAct = rs.map(r=>r.activated).sort().at(-1);
-  const days = Math.floor((refreshT - new Date(latestAct.replace(/\//g,"-")).getTime()) / 86400000);
-  let cls, label;
-  if (days <= 90)       { cls = "s-ok";    label = "利用中"; }
-  else if (days <= 365) { cls = "s-warn";  label = "要確認"; }
-  else                  { cls = "s-stale"; label = "未利用の可能性"; }
-  const devices = rs.reduce((s,r)=> s + r.win + r.mac + r.wm + r.ios + r.android, 0);
-  return { upn: u, name: rs[0].name, latestAct, days, cls, label, devices, records: rs.length };
-}).sort((a,b)=> b.days - a.days); // 放置が長い順(要対応が先頭)
-
-document.getElementById("users").innerHTML = userStatus.map(s => `
-  <div class="ucard ${s.cls}">
-    <div class="uhead">
-      <div>
-        <div class="uname">${s.name}</div>
-        <div class="uupn">${s.upn}</div>
-      </div>
-      <span class="status ${s.cls}">${s.label}</span>
-    </div>
-    <div class="days">${s.days}<small>日 経過</small></div>
-    <div class="udetail">最終アクティベーション: <b>${s.latestAct}</b> ・ デバイス ${s.devices} 台 ・ レコード ${s.records} 件</div>
-  </div>`).join("");
-
-// ---- Timeline ----
-const tl = document.getElementById("timeline");
-const dates = rows.map(r => ({ ...r, t: new Date(r.activated.replace(/\//g,"-")).getTime() }));
-const tMin = new Date("2024-08-01").getTime();
-const tMax = new Date("2026-08-01").getTime();
-const pct = t => ((t - tMin) / (tMax - tMin)) * 100;
-
-// axis ticks: each Jan + endpoints
-["2024/09","2025/01","2025/07","2026/01","2026/07"].forEach(lab => {
-  const t = new Date(lab.replace("/","-") + "-01").getTime();
-  const tick = document.createElement("div");
-  tick.className = "tl-tick";
-  tick.style.left = pct(t) + "%";
-  tick.innerHTML = `<span>${lab}</span>`;
-  tl.appendChild(tick);
-});
-
-// alternate labels above/below to avoid collision
-const sorted = [...dates].sort((a,b)=>a.t-b.t);
-sorted.forEach((r, i) => {
-  const x = pct(r.t);
-  const dot = document.createElement("div");
-  dot.className = "tl-dot " + (CLASSMAP[r.upn] || "");
-  dot.style.left = x + "%";
-  dot.title = `${r.upn} — ${r.activated}`;
-  tl.appendChild(dot);
-
-  const lab = document.createElement("div");
-  lab.className = "tl-label";
-  lab.style.left = x + "%";
-  lab.style.top = (i % 2 === 0) ? "18px" : "84px";
-  lab.innerHTML = `${r.name}<small>${r.activated.slice(2)}</small>`;
-  tl.appendChild(lab);
-});
-
-document.getElementById("legend").innerHTML = uniqueUsers.map(u =>
-  `<span><i style="background:${COLORS[u]}"></i>${u}</span>`).join("");
-
-// ---- Charts ----
-const chartFont = { family: '"Hiragino Sans","Yu Gothic",Meiryo,sans-serif', size: 12 };
-Chart.defaults.font = chartFont;
-Chart.defaults.color = "#5b6b7a";
-
-new Chart(document.getElementById("platformChart"), {
-  type: "bar",
-  data: {
-    labels: ["Windows", "Mac", "Windows 10 Mobile", "iOS", "Android"],
-    datasets: [{
-      data: [
-        rows.reduce((s,r)=>s+r.win,0),
-        rows.reduce((s,r)=>s+r.mac,0),
-        rows.reduce((s,r)=>s+r.wm,0),
-        rows.reduce((s,r)=>s+r.ios,0),
-        rows.reduce((s,r)=>s+r.android,0),
-      ],
-      backgroundColor: ["#0f6f7c","#4aa3ad","#c7d5da","#c7d5da","#c7d5da"],
-      borderRadius: 5,
-    }]
-  },
-  options: {
-    plugins: { legend: { display:false } },
-    scales: { y: { beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:"#eef2f5" } }, x:{ grid:{ display:false } } }
+function resolveColumns(headers) {
+  const norm = h => (h || "").toString().replace(/^\uFEFF/, "").trim().toLowerCase();
+  const map = {};
+  for (const [key, aliases] of Object.entries(COLDEFS)) {
+    const idx = headers.findIndex(h => aliases.includes(norm(h)));
+    if (idx >= 0) map[key] = headers[idx];
   }
-});
-
-const byUser = uniqueUsers.map(u => {
-  const rs = rows.filter(r=>r.upn===u);
-  return {
-    upn: u,
-    win: rs.reduce((s,r)=>s+r.win,0),
-    mac: rs.reduce((s,r)=>s+r.mac,0),
-  };
-});
-
-new Chart(document.getElementById("userChart"), {
-  type: "bar",
-  data: {
-    labels: byUser.map(b=>b.upn),
-    datasets: [
-      { label:"Windows", data: byUser.map(b=>b.win), backgroundColor:"#0f6f7c", borderRadius:5 },
-      { label:"Mac", data: byUser.map(b=>b.mac), backgroundColor:"#d98b1f", borderRadius:5 },
-    ]
-  },
-  options: {
-    indexAxis: "y",
-    plugins: { legend: { position:"bottom" } },
-    scales: {
-      x: { stacked:true, beginAtZero:true, ticks:{ stepSize:1 }, grid:{ color:"#eef2f5" } },
-      y: { stacked:true, grid:{ display:false } }
-    }
-  }
-});
-
-// ---- Table ----
-document.getElementById("tbody").innerHTML = rows.map(r => {
-  const isDup = dupUsers.includes(r.upn);
-  const cell = v => `<td class="num${v===0?" zero":""}">${v}</td>`;
-  return `<tr>
-    <td><span class="upn">${r.upn}</span>${isDup ? ' <span class="badge dup">重複</span>' : ""}</td>
-    <td>${r.name}</td>
-    <td class="num">${r.activated}</td>
-    ${cell(r.win)}${cell(r.mac)}${cell(r.ios)}${cell(r.android)}
-    <td>${r.shared ? "はい" : "いいえ"}</td>
-  </tr>`;
-}).join("");
-
-// ---- Duplicate note ----
-if (dupUsers.length) {
-  const u = dupUsers[0];
-  const cnt = rows.filter(r=>r.upn===u).length;
-  document.getElementById("dupNote").style.display = "block";
-  document.getElementById("dupNote").innerHTML =
-    `<b>注意:</b> <span class="upn">${u}</span> に ${cnt} 件のアクティベーションレコードが存在します。` +
-    `複数ライセンスの割り当て、または再アクティベーション履歴の可能性があります。管理センターでライセンス割り当て状況の確認を推奨します。`;
+  return map;
 }
+
+function toInt(v){ const n = parseInt((v ?? "").toString().trim(), 10); return isNaN(n) ? 0 : n; }
+function toBool(v){ return /^(true|1|yes|はい)$/i.test((v ?? "").toString().trim()); }
+
+function parseCSV(text, sourceName) {
+  const err = document.getElementById("parseError");
+  err.style.display = "none";
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
+  if (!result.data || result.data.length === 0) return showError("データ行が見つかりませんでした。ヘッダー行を含むCSVを指定してください。");
+
+  const headers = result.meta.fields || [];
+  const cols = resolveColumns(headers);
+  if (!cols.upn) return showError("「User Principal Name」列が見つかりませんでした。M365 アクティベーションレポートのCSVか確認してください。");
+
+  const rows = result.data.map(r => ({
+    refresh:   (r[cols.refresh] || "").trim(),
+    upn:       (r[cols.upn] || "").trim(),
+    name:      (r[cols.name] || "").trim(),
+    product:   (r[cols.product] || "").trim(),
+    activated: (r[cols.activated] || "").trim(),
+    win:     toInt(r[cols.win]),
+    mac:     toInt(r[cols.mac]),
+    wm:      toInt(r[cols.wm]),
+    ios:     toInt(r[cols.ios]),
+    android: toInt(r[cols.android]),
+    shared:  toBool(r[cols.shared]),
+  })).filter(r => r.upn);
+
+  if (rows.length === 0) return showError("有効なデータ行がありません。");
+  render(rows, sourceName);
+}
+
+function showError(msg) {
+  const err = document.getElementById("parseError");
+  err.textContent = "⚠ " + msg;
+  err.style.display = "block";
+}
+
+/* ---------- Deactivated detection ---------- */
+function deviceTotal(r){ return r.win + r.mac + r.wm + r.ios + r.android; }
+function isDeactivated(r){ return !r.activated || deviceTotal(r) === 0; }
+function deactReason(r){
+  const reasons = [];
+  if (!r.activated) reasons.push("アクティベーション日なし");
+  if (deviceTotal(r) === 0) reasons.push("有効デバイス 0 台");
+  return reasons.join(" / ");
+}
+
+/* ---------- Render ---------- */
+function render(rows, sourceName) {
+  charts.forEach(c => c.destroy());
+  charts = [];
+
+  document.getElementById("uploader").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+  document.getElementById("headerMeta").style.display = "flex";
+  document.getElementById("fileChip").innerHTML = `読み込み中のデータ: <b>${escapeHtml(sourceName)}</b>(${rows.length} 行)`;
+
+  document.getElementById("refreshDate").textContent = rows.find(r=>r.refresh)?.refresh || "—";
+  const products = [...new Set(rows.map(r=>r.product).filter(Boolean))];
+  document.getElementById("productType").textContent = products.join(", ") || "—";
+
+  const uniqueUsers = [...new Set(rows.map(r => r.upn))];
+  const userColor = {};
+  uniqueUsers.forEach((u,i)=> userColor[u] = PALETTE[i % PALETTE.length]);
+
+  /* --- Deactivated section (most prominent) --- */
+  const deactRows = rows.filter(isDeactivated);
+  const deactUsers = [...new Set(deactRows.map(r=>r.upn))];
+  const sec = document.getElementById("deactSection");
+  if (deactUsers.length) {
+    sec.innerHTML = `
+      <div class="deact-banner">
+        <h2>⛔ 非アクティブ / Deactivate 状態のユーザー(${deactUsers.length} 名)</h2>
+        <div class="deact-list">
+          ${deactUsers.map(u => {
+            const rs = deactRows.filter(r=>r.upn===u);
+            return `<div class="deact-card">
+              <span class="upn">${escapeHtml(u)}</span>
+              <span class="why">${escapeHtml(deactReason(rs[0]))}</span>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`;
+  } else {
+    sec.innerHTML = `<div class="deact-ok">✔ 非アクティブ(Deactivate)状態のユーザーはいません — 全レコードにアクティブなデバイスがあります</div>`;
+  }
+
+  /* --- KPIs --- */
+  const totalDevices = rows.reduce((s,r)=> s + deviceTotal(r), 0);
+  const dupUsers = uniqueUsers.filter(u => rows.filter(r=>r.upn===u).length > 1);
+  const activeUsers = uniqueUsers.filter(u => !deactUsers.includes(u));
+
+  const kpis = [
+    { label: "レコード数", value: rows.length, sub: "アクティベーション記録" },
+    { label: "アクティブユーザー", value: activeUsers.length, sub: `全 ${uniqueUsers.length} ユーザー中` },
+    { label: "非アクティブユーザー", value: deactUsers.length, sub: deactUsers.slice(0,3).join(", ") || "なし", danger: deactUsers.length > 0 },
+    { label: "総デバイス数", value: totalDevices, sub: `Windows ${rows.reduce((s,r)=>s+r.win,0)} / Mac ${rows.reduce((s,r)=>s+r.mac,0)}` },
+    { label: "重複レコード", value: dupUsers.length, sub: dupUsers.slice(0,3).join(", ") || "なし", warn: dupUsers.length > 0 },
+  ];
+  document.getElementById("kpis").innerHTML = kpis.map(k => `
+    <div class="kpi${k.danger ? " danger" : k.warn ? " warn" : ""}">
+      <div class="label">${k.label}</div>
+      <div class="value">${k.value}</div>
+      <div class="sub">${escapeHtml(String(k.sub))}</div>
+    </div>`).join("");
+
+  /* --- Timeline --- */
+  renderTimeline(rows, userColor, uniqueUsers);
+
+  /* --- Charts --- */
+  const chartFont = { family: '"Hiragino Sans","Yu Gothic",Meiryo,sans-serif', size: 12 };
+  Chart.defaults.font = chartFont;
+  Chart.defaults.color = "#5b6b7a";
+
+  charts.push(new Chart(document.getElementById("platformChart"), {
+    type: "bar",
+    data: {
+      labels: ["Windows", "Mac", "Win10 Mobile", "iOS", "Android"],
+      datasets: [{
+        data: [
+          rows.reduce((s,r)=>s+r.win,0),
+          rows.reduce((s,r)=>s+r.mac,0),
+          rows.reduce((s,r)=>s+r.wm,0),
+          rows.reduce((s,r)=>s+r.ios,0),
+          rows.reduce((s,r)=>s+r.android,0),
+        ],
+        backgroundColor: ["#0f6f7c","#4aa3ad","#c7d5da","#c7d5da","#c7d5da"],
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      plugins: { legend: { display:false } },
+      scales: { y: { beginAtZero:true, ticks:{ precision:0 }, grid:{ color:"#eef2f5" } }, x:{ grid:{ display:false } } }
+    }
+  }));
+
+  const byUser = uniqueUsers.map(u => {
+    const rs = rows.filter(r=>r.upn===u);
+    return {
+      upn: u,
+      win: rs.reduce((s,r)=>s+r.win,0),
+      mac: rs.reduce((s,r)=>s+r.mac,0),
+      mobile: rs.reduce((s,r)=>s+r.wm+r.ios+r.android,0),
+    };
+  });
+
+  charts.push(new Chart(document.getElementById("userChart"), {
+    type: "bar",
+    data: {
+      labels: byUser.map(b=>b.upn),
+      datasets: [
+        { label:"Windows", data: byUser.map(b=>b.win), backgroundColor:"#0f6f7c", borderRadius:5 },
+        { label:"Mac", data: byUser.map(b=>b.mac), backgroundColor:"#d98b1f", borderRadius:5 },
+        { label:"モバイル", data: byUser.map(b=>b.mobile), backgroundColor:"#c0442e", borderRadius:5 },
+      ]
+    },
+    options: {
+      indexAxis: "y",
+      plugins: { legend: { position:"bottom" } },
+      scales: {
+        x: { stacked:true, beginAtZero:true, ticks:{ precision:0 }, grid:{ color:"#eef2f5" } },
+        y: { stacked:true, grid:{ display:false } }
+      }
+    }
+  }));
+
+  /* --- Table (deactivated rows sorted first & highlighted) --- */
+  const sortedRows = [...rows].sort((a,b)=> Number(isDeactivated(b)) - Number(isDeactivated(a)));
+  document.getElementById("tbody").innerHTML = sortedRows.map(r => {
+    const deact = isDeactivated(r);
+    const isDup = dupUsers.includes(r.upn);
+    const cell = v => `<td class="num${v===0?" zero":""}">${v}</td>`;
+    return `<tr class="${deact ? "row-deact" : ""}">
+      <td>${deact ? '<span class="badge deact">Deactivate</span>' : '<span class="badge active">Active</span>'}</td>
+      <td><span class="upn">${escapeHtml(r.upn)}</span>${isDup ? ' <span class="badge dup">重複</span>' : ""}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td class="num">${escapeHtml(r.activated) || "—"}</td>
+      ${cell(r.win)}${cell(r.mac)}${cell(r.ios)}${cell(r.android)}
+      <td>${r.shared ? "はい" : "いいえ"}</td>
+    </tr>`;
+  }).join("");
+
+  /* --- Duplicate note --- */
+  const dupNote = document.getElementById("dupNote");
+  if (dupUsers.length) {
+    dupNote.style.display = "block";
+    dupNote.innerHTML = `<b>注意:</b> ${dupUsers.map(u=>`<span class="upn">${escapeHtml(u)}</span>`).join(", ")} に複数のアクティベーションレコードが存在します。複数ライセンスの割り当て、または再アクティベーション履歴の可能性があります。`;
+  } else {
+    dupNote.style.display = "none";
+  }
+}
+
+function renderTimeline(rows, userColor, uniqueUsers) {
+  const tl = document.getElementById("timeline");
+  tl.innerHTML = '<div class="tl-axis"></div>';
+
+  const dated = rows.filter(r=>r.activated).map(r => ({ ...r, t: new Date(r.activated.replace(/\//g,"-")).getTime() })).filter(r=>!isNaN(r.t));
+  if (dated.length === 0) {
+    tl.innerHTML = '<p style="font-size:13px;color:var(--ink-soft);padding-top:44px;text-align:center">アクティベーション日を持つレコードがありません</p>';
+    document.getElementById("legend").innerHTML = "";
+    return;
+  }
+
+  const ts = dated.map(r=>r.t);
+  const span = Math.max(...ts) - Math.min(...ts) || 1;
+  const tMin = Math.min(...ts) - span * 0.06;
+  const tMax = Math.max(...ts) + span * 0.06;
+  const pct = t => ((t - tMin) / (tMax - tMin)) * 100;
+
+  // ~5 evenly spaced ticks
+  for (let i = 0; i <= 4; i++) {
+    const t = tMin + (tMax - tMin) * (i / 4);
+    const d = new Date(t);
+    const lab = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}`;
+    const tick = document.createElement("div");
+    tick.className = "tl-tick";
+    tick.style.left = pct(t) + "%";
+    tick.innerHTML = `<span>${lab}</span>`;
+    tl.appendChild(tick);
+  }
+
+  const sorted = [...dated].sort((a,b)=>a.t-b.t);
+  const showLabels = sorted.length <= 14;
+  sorted.forEach((r, i) => {
+    const x = pct(r.t);
+    const dot = document.createElement("div");
+    dot.className = "tl-dot";
+    dot.style.left = x + "%";
+    dot.style.background = userColor[r.upn];
+    dot.style.boxShadow = `0 0 0 1.5px ${userColor[r.upn]}`;
+    dot.title = `${r.upn} — ${r.activated}`;
+    tl.appendChild(dot);
+
+    if (showLabels) {
+      const lab = document.createElement("div");
+      lab.className = "tl-label";
+      lab.style.left = x + "%";
+      lab.style.top = (i % 2 === 0) ? "18px" : "84px";
+      lab.innerHTML = `${escapeHtml(r.name || r.upn.split("@")[0])}<small>${escapeHtml(r.activated.slice(2))}</small>`;
+      tl.appendChild(lab);
+    }
+  });
+
+  document.getElementById("tlSub").textContent = `初回アクティベーション日の分布(${sorted[0].activated} 〜 ${sorted[sorted.length-1].activated})`;
+  document.getElementById("legend").innerHTML = uniqueUsers.map(u =>
+    `<span><i style="background:${userColor[u]}"></i>${escapeHtml(u)}</span>`).join("");
+}
+
+function escapeHtml(s){ return (s ?? "").toString().replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------- Upload wiring ---------- */
+const dz = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+
+document.getElementById("pickBtn").addEventListener("click", e => { e.stopPropagation(); fileInput.click(); });
+dz.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { if (fileInput.files[0]) readFile(fileInput.files[0]); });
+
+["dragenter","dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
+dz.addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0];
+  if (f) readFile(f);
+});
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => parseCSV(reader.result, file.name);
+  reader.onerror = () => showError("ファイルの読み込みに失敗しました。");
+  reader.readAsText(file);
+}
+
+document.getElementById("parseBtn").addEventListener("click", () => {
+  const text = document.getElementById("pasteArea").value;
+  if (!text.trim()) return showError("貼り付けデータが空です。");
+  parseCSV(text, "貼り付けデータ");
+});
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("uploader").style.display = "block";
+  document.getElementById("headerMeta").style.display = "none";
+  fileInput.value = "";
+});
 </script>
 </body>
 </html>
